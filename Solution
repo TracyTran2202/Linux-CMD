@@ -1,0 +1,75 @@
+#!/bin/bash
+
+# Input and output files
+INPUT="tmdb-movies.csv"
+OUTPUT="cleaned_tmdb_movies.csv"
+
+# Remove duplicates (based on id or title, assuming id is 1st column, title is 2nd)
+awk -F',' '!seen[$1]++' "$INPUT" > temp1.csv
+
+# Clean and standardize data
+awk -F',' '
+BEGIN {OFS=","}
+NR==1 {
+    # Print header as is
+    print $0
+    next
+}
+{
+    # Handle missing or invalid values
+    # Column assumptions: 1:id, 2:title, 3:release_date, 4:genres, 5:director, 6:cast,
+    # 7:vote_average, 8:vote_count, 9:budget, 10:revenue, 11:runtime
+
+    # Replace empty fields with defaults
+    $3 = ($3 ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/) ? $3 : "1900-01-01"  # release_date
+    $4 = ($4 == "" || $4 == "NA") ? "Unknown" : $4                    # genres
+    $5 = ($5 == "" || $5 == "NA") ? "Unknown" : $5                    # director
+    $6 = ($6 == "" || $6 == "NA") ? "Unknown" : $6                    # cast
+    $7 = ($7 ~ /^[0-9]+(\.[0-9]+)?$/) ? $7 : 0                        # vote_average
+    $8 = ($8 ~ /^[0-9]+$/) ? $8 : 0                                   # vote_count
+    $9 = ($9 ~ /^[0-9]+$/) ? $9 : 0                                   # budget
+    $10 = ($10 ~ /^[0-9]+$/) ? $10 : 0                                # revenue
+    $11 = ($11 ~ /^[0-9]+$/) ? $11 : 0                                # runtime
+
+    # Remove leading/trailing spaces and quotes
+    for (i=1; i<=NF; i++) {
+        gsub(/^[ \t"]+|[ \t"]+$/, "", $i)
+    }
+
+    # Ensure pipe-separated fields are consistent
+    gsub(/\|\|+/, "|", $4)  # Remove duplicate pipes in genres
+    gsub(/\|\|+/, "|", $6)  # Remove duplicate pipes in cast
+    $4 = ($4 ~ /\|$/) ? substr($4, 1, length($4)-1) : $4  # Remove trailing pipe
+    $6 = ($6 ~ /\|$/) ? substr($6, 1, length($6)-1) : $6  # Remove trailing pipe
+
+    # Print cleaned row
+    print $0
+}' temp1.csv > "$OUTPUT"
+
+# Remove temporary file
+rm temp1.csv
+
+# Verify the cleaned data
+echo "Cleaned data saved to $OUTPUT"
+head -n 5 "$OUTPUT"
+
+1/ 
+awk -F',' 'NR==1 {print; next} {print | "sort -t, -k3 -r"}' cleaned_tmdb_movies.csv > sorted_by_release_date.csv
+2/
+awk -F',' 'NR==1 || $7 > 7.5' cleaned_tmdb_movies.csv > high_rated_movies.csv
+3/
+# Highest
+awk -F',' 'NR==1 {next} {if ($10 > max) {max=$10; max_line=$0}} END {print max_line}' cleaned_tmdb_movies.csv
+# Lowest
+awk -F',' 'NR==1 {next} {if ($10 < min || min=="") {min=$10; min_line=$0}} END {print min_line}' cleaned_tmdb_movies.csv
+4/
+awk -F',' 'NR==1 {next} {sum+=$10} END {print sum}' cleaned_tmdb_movies.csv
+5/
+awk -F',' 'NR==1 {print; next} {profit=$10-$9; print $0","profit | "sort -t, -k22 -nr | head -n 11"}' cleaned_tmdb_movies.csv > top_10_profit_movies.csv
+6/
+# Director
+awk -F',' 'NR==1 {next} {directors[$5]++} END {for (d in directors) print d, directors[d] | "sort -k2 -nr | head -n 1"}' cleaned_tmdb_movies.csv
+# Actor
+awk -F',' 'NR==1 {next} {split($6, actors, "|"); for (i in actors) counts[actors[i]]++} END {for (a in counts) print a, counts[a] | "sort -k2 -nr | head -n 1"}' cleaned_tmdb_movies.csv
+7/
+awk -F',' 'NR==1 {next} {split($4, genres, "|"); for (i in genres) counts[genres[i]]++} END {for (g in counts) print g, counts[g]}' cleaned_tmdb_movies.csv > genre_counts.csv
